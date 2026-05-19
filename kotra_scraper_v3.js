@@ -102,6 +102,15 @@
     const jobs = jobList.length > 0 ? jobList : [{}];
 
     for (const job of jobs) {
+      const nationality = [job.in2_job_country1, job.in2_job_country2, job.in2_job_country3]
+        .filter(Boolean).join(', ');
+      const language = [job.in2_job_lang1, job.in2_job_lang2, job.in2_job_lang3]
+        .filter(Boolean).join(', ');
+      const nationalityEng = [job.in2_job_country1_eng, job.in2_job_country2_eng, job.in2_job_country3_eng]
+        .filter(Boolean).join(', ');
+      const languageEng = [job.in2_job_lang1_eng, job.in2_job_lang2_eng, job.in2_job_lang3_eng]
+        .filter(Boolean).join(', ');
+
       results.push({
         no: i + 1,
         company: d.in2_corp_nm_kor || corp.name,
@@ -111,62 +120,73 @@
         companyType: d.in2_corp_scale || '',
         employees: d.in2_corp_mem_cnt || '',
         established: d.in2_corp_since || '',
-        position: job.in2_job_title || '',
+        positionKor: job.in2_job_title || '',
+        positionEng: job.in2_job_title_eng || '',
         jobCategory: job.in2_job_duty_json || '',
         jobCategoryDetail: job.in2_job_duty_detail || '',
-        employmentType: job.in2_employ_type || '',
-        salary: job.in2_salary || '',
-        location: job.in2_work_place || '',
-        locationDetail: job.in2_work_place_detail || '',
-        nationality: job.in2_nationality || '',
-        language: job.in2_language || '',
-        education: job.in2_education || '',
-        experience: job.in2_experience || '',
-        major: job.in2_major || '',
-        jobDetailKor: (job.in2_job_detail || '').replace(/\n/g, ' | '),
-        jobDetailEng: (job.in2_job_detail_eng || '').replace(/\n/g, ' | '),
-        benefits: (job.in2_benefit || '').replace(/\n/g, ' | '),
+        jobCategoryDetailEng: job.in2_job_duty_detail_eng || '',
+        employmentTypeKor: job.in2_job_permanental || '',
+        employmentTypeEng: job.in2_job_permanental_eng || '',
+        salary: job.in2_job_salary_range || '',
+        location: job.in2_job_area || '',
+        locationDetail: job.in2_job_area_detail || '',
+        locationDetailEng: job.in2_job_area_detail_eng || '',
+        nationality,
+        nationalityEng,
+        language,
+        languageEng,
+        education: job.in2_job_academic || '',
+        educationEng: job.in2_job_academic_eng || '',
+        experience: job.in2_job_career || '',
+        major: job.in2_job_major || '',
+        majorEng: job.in2_job_major_eng || '',
+        jobDetailKor: (job.in2_job_intro_detail || '').replace(/\r?\n/g, ' | '),
+        jobDetailEng: (job.in2_job_intro_detail_eng || '').replace(/\r?\n/g, ' | '),
+        benefits: (job.in2_job_welfare || '').replace(/\r?\n/g, ' | '),
+        benefitsEng: (job.in2_job_welfare_eng || '').replace(/\r?\n/g, ' | '),
       });
     }
 
-    const isIntern = jobs.some(j => (j.in2_employ_type||'').includes('intern') || (j.in2_employ_type||'').includes('인턴'));
+    const isIntern = jobs.some(j => (j.in2_job_permanental_eng||'').toLowerCase().includes('intern'));
     console.log(`  ✅ ${d.in2_corp_nm_kor || corp.name}: 공고 ${jobList.length}개${isIntern ? ' 🎯인턴십' : ''}`);
     await new Promise(r => setTimeout(r, 800));
   }
 
   // ── Step 3: CSV 생성 및 다운로드 ────────────────────────────
   const headers = [
-    'No','Company (KOR)','Company (ENG)','Website','Industry','Company Type',
-    'Employees','Established',
-    'Job Title','Job Category','Job Category Detail',
-    'Employment Type','Nationality','Language','Education','Experience','Salary(USD)','Major',
-    'Location','Location Detail',
-    'Job Detail (KOR)','Job Detail (ENG)','Benefits'
+    'No','Company (KOR)','Company (ENG)','Website','Industry','Company Type','Employees','Established',
+    'Job Title (KOR)','Job Title (ENG)','Job Category','Job Detail (KOR)','Job Detail (ENG)',
+    'Employment Type (KOR)','Employment Type (ENG)',
+    'Nationality','Nationality (ENG)','Language','Language (ENG)',
+    'Education','Experience','Salary (USD)','Major',
+    'Location','Location Detail','Location Detail (ENG)',
+    'Benefits (KOR)','Benefits (ENG)'
   ];
 
   const rows = results.map(r => [
-    r.no, r.company, r.companyEng, r.website, r.industry, r.companyType,
-    r.employees, r.established,
-    r.position, r.jobCategory, r.jobCategoryDetail,
-    r.employmentType, r.nationality, r.language, r.education, r.experience, r.salary, r.major,
-    r.location, r.locationDetail,
-    r.jobDetailKor, r.jobDetailEng, r.benefits
+    r.no, r.company, r.companyEng, r.website, r.industry, r.companyType, r.employees, r.established,
+    r.positionKor, r.positionEng, r.jobCategory, r.jobDetailKor, r.jobDetailEng,
+    r.employmentTypeKor, r.employmentTypeEng,
+    r.nationality, r.nationalityEng, r.language, r.languageEng,
+    r.education, r.experience, r.salary, r.major,
+    r.location, r.locationDetail, r.locationDetailEng,
+    r.benefits, r.benefitsEng
   ].map(v => `"${String(v||'').replace(/"/g,'""').replace(/\r?\n/g,' ')}"`).join(','));
 
   const csv = '﻿' + [headers.join(','), ...rows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'kotra_internship_v4.csv';
+  a.download = 'kotra_internship_v5.csv';
   document.body.appendChild(a);
   a.click();
   a.remove();
 
-  const internships = results.filter(r => (r.employmentType||'').toLowerCase().includes('intern'));
-  console.log('\n🎉 완료! kotra_internship_v4.csv 다운로드됨');
+  const internships = results.filter(r => (r.employmentTypeEng||'').toLowerCase().includes('intern'));
+  console.log('\n🎉 완료! kotra_internship_v5.csv 다운로드됨');
   console.log(`총 ${results.length}행 | 인턴십 공고: ${internships.length}개`);
-  internships.forEach(r => console.log(`  🎯 ${r.company}: ${r.position}`));
-  console.table(results.map(r => ({No:r.no, Company:r.company, Position:r.position, Type:r.employmentType})));
+  internships.forEach(r => console.log(`  🎯 ${r.company}: ${r.positionKor} (${r.employmentTypeEng})`));
+  console.table(results.map(r => ({No:r.no, Company:r.company, Position:r.positionKor, '고용형태':r.employmentTypeKor, '연봉(USD)':r.salary})));
 
   return results;
 })();
