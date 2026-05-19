@@ -96,67 +96,77 @@
     }
 
     const d = comp.$data.corpDetail;
-    console.log('  Raw corpDetail keys:', Object.keys(d).join(', '));
 
-    // 채용공고 배열 (여러 공고가 있을 수 있음)
-    const jobList = comp.$data.jobList || comp.$data.in2JobList || [];
-    const jobs = Array.isArray(jobList) && jobList.length > 0 ? jobList : [d];
+    // 채용공고 배열: corpDetail.in2_job_list 에 있음 (진단으로 확인)
+    const jobList = d.in2_job_list || [];
+    const jobs = jobList.length > 0 ? jobList : [{}];
 
     for (const job of jobs) {
       results.push({
         no: i + 1,
-        company: d.in2_corp_nm_kor || d.corp_nm_kor || corp.name,
-        companyEng: d.in2_corp_nm_eng || d.corp_nm_eng || '',
-        website: d.in2_corp_homepage || d.corp_homepage || '',
-        industry: d.in2_corp_category || d.corp_category || '',
-        companyType: d.corp_scale || '',
-        position: job.in2_job_title || job.job_title || d.in2_job_title || '',
-        employmentType: job.in2_employ_type || job.employ_type || '',
-        salary: job.in2_salary || job.salary || '',
-        location: job.in2_work_place || job.work_place || '',
-        locationDetail: job.in2_work_place_detail || job.work_place_detail || '',
-        nationality: job.in2_nationality || job.nationality || '',
-        language: job.in2_language || job.language || '',
-        education: job.in2_education || job.education || '',
-        managerName: d.manager_name || '',
-        managerPosition: d.manager_position || d.manager_dept || '',
-        managerEmail: d.manager_email || '',
-        managerPhone: d.manager_phone || d.manager_tel || '',
+        company: d.in2_corp_nm_kor || corp.name,
+        companyEng: d.in2_corp_nm_eng || '',
+        website: d.in2_corp_homepage || '',
+        industry: d.in2_corp_category || '',
+        companyType: d.in2_corp_scale || '',
+        employees: d.in2_corp_mem_cnt || '',
+        established: d.in2_corp_since || '',
+        position: job.in2_job_title || '',
+        jobCategory: job.in2_job_duty_json || '',
+        jobCategoryDetail: job.in2_job_duty_detail || '',
+        employmentType: job.in2_employ_type || '',
+        salary: job.in2_salary || '',
+        location: job.in2_work_place || '',
+        locationDetail: job.in2_work_place_detail || '',
+        nationality: job.in2_nationality || '',
+        language: job.in2_language || '',
+        education: job.in2_education || '',
+        experience: job.in2_experience || '',
+        major: job.in2_major || '',
+        jobDetailKor: (job.in2_job_detail || '').replace(/\n/g, ' | '),
+        jobDetailEng: (job.in2_job_detail_eng || '').replace(/\n/g, ' | '),
+        benefits: (job.in2_benefit || '').replace(/\n/g, ' | '),
       });
     }
 
-    console.log(`  ✅ ${d.in2_corp_nm_kor || corp.name}: ${jobs.length}개 공고 | ${d.corp_homepage || ''}`);
+    const isIntern = jobs.some(j => (j.in2_employ_type||'').includes('intern') || (j.in2_employ_type||'').includes('인턴'));
+    console.log(`  ✅ ${d.in2_corp_nm_kor || corp.name}: 공고 ${jobList.length}개${isIntern ? ' 🎯인턴십' : ''}`);
     await new Promise(r => setTimeout(r, 800));
   }
 
   // ── Step 3: CSV 생성 및 다운로드 ────────────────────────────
   const headers = [
     'No','Company (KOR)','Company (ENG)','Website','Industry','Company Type',
-    'Internship Position','Employment Type','Nationality','Language','Education',
-    'Salary(USD)','Location','Location Detail',
-    'Contact Name','Contact Position','Contact Email','Contact Phone'
+    'Employees','Established',
+    'Job Title','Job Category','Job Category Detail',
+    'Employment Type','Nationality','Language','Education','Experience','Salary(USD)','Major',
+    'Location','Location Detail',
+    'Job Detail (KOR)','Job Detail (ENG)','Benefits'
   ];
 
   const rows = results.map(r => [
     r.no, r.company, r.companyEng, r.website, r.industry, r.companyType,
-    r.position, r.employmentType, r.nationality, r.language, r.education,
-    r.salary, r.location, r.locationDetail,
-    r.managerName, r.managerPosition, r.managerEmail, r.managerPhone
+    r.employees, r.established,
+    r.position, r.jobCategory, r.jobCategoryDetail,
+    r.employmentType, r.nationality, r.language, r.education, r.experience, r.salary, r.major,
+    r.location, r.locationDetail,
+    r.jobDetailKor, r.jobDetailEng, r.benefits
   ].map(v => `"${String(v||'').replace(/"/g,'""').replace(/\r?\n/g,' ')}"`).join(','));
 
   const csv = '﻿' + [headers.join(','), ...rows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'kotra_internship_v3.csv';
+  a.download = 'kotra_internship_v4.csv';
   document.body.appendChild(a);
   a.click();
   a.remove();
 
-  console.log('\n🎉 완료! kotra_internship_v3.csv 다운로드됨');
-  console.table(results.map(r => ({
-    No: r.no, Company: r.company, Position: r.position, Website: r.website
-  })));
+  const internships = results.filter(r => (r.employmentType||'').toLowerCase().includes('intern'));
+  console.log('\n🎉 완료! kotra_internship_v4.csv 다운로드됨');
+  console.log(`총 ${results.length}행 | 인턴십 공고: ${internships.length}개`);
+  internships.forEach(r => console.log(`  🎯 ${r.company}: ${r.position}`));
+  console.table(results.map(r => ({No:r.no, Company:r.company, Position:r.position, Type:r.employmentType})));
 
   return results;
 })();
