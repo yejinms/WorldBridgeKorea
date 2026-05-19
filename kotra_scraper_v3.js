@@ -1,118 +1,163 @@
 /**
- * KOTRA 2026 외국인유학생 채용관 - Vue Router 직접 조작 방식 v3
+ * KOTRA 2026 외국인유학생 채용관 - 완전 자동화 최종 버전
  *
- * 실행 전 확인사항:
- * 반드시 아래 URL 페이지에서 실행할 것:
- * https://jffis.kotra.or.kr/fairOnline.do?selAction=single_page&SYSTEM_IDX=64&hl=KOR&fairGubunVal=in2&FAIRMENU_IDX=14629#/
+ * - 전체 기업 목록 자동 수집 (101개, 7페이지)
+ * - 각 기업별 채용공고 상세 정보 완전 추출
  *
- * 콘솔에서: allow pasting 입력 후 Enter → 스크립트 붙여넣기 → Enter
+ * 실행 위치: https://jffis.kotra.or.kr/fairOnline.do?selAction=single_page&SYSTEM_IDX=64&hl=KOR&fairGubunVal=in2&FAIRMENU_IDX=14629#/
+ * allow pasting → Enter → 붙여넣기 → Enter
  */
 (async function() {
-  const CORP_IDS = [
-    {id: '265890', name: 'FLYINGSPARKS'},
-    {id: '265112', name: 'HK연우'},
-    {id: '270067', name: '건우하우징랜드(주)'},
-    {id: '265018', name: '(주)경인양행'},
-    {id: '265165', name: '주식회사 고피자'},
-    {id: '265083', name: '(주) 그라비티'},
-    {id: '265330', name: '글로벌머니익스프레스'},
-    {id: '266108', name: '주식회사 글로벌인테크'},
-    {id: '265123', name: '나와'},
-    {id: '266544', name: '(주)나인벨'},
-    {id: '266360', name: '(주)네패스'},
-    {id: '265432', name: '(주)넥스틴'},
-    {id: '265770', name: '(주)노루페인트'},
-    {id: '264944', name: '(주)다인정공'},
-    {id: '270882', name: '대진기계공업(주)'},
-    {id: '266121', name: '데이원컴퍼니'}
-  ];
 
-  // ── Step 1: Vue 루트 인스턴스 탐색 ──────────────────────────
+  // ── 유틸: Vue 루트 찾기 ──────────────────────────────────────
   function findVueRoot() {
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (node.__vue__ && node.__vue__.$router) return node.__vue__.$root;
-    }
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+    let nd;
+    while ((nd = w.nextNode()))
+      if (nd.__vue__ && nd.__vue__.$router) return nd.__vue__.$root;
     return null;
   }
 
-  // corpDetail 데이터를 가진 Vue 컴포넌트 탐색
-  function findCorpDetailComp(vm) {
+  // Vue 컴포넌트 탐색 (조건 함수)
+  function findComp(vm, predicate) {
     if (!vm) return null;
-    if (vm.$data && vm.$data.corpDetail) return vm;
-    for (const child of (vm.$children || [])) {
-      const found = findCorpDetailComp(child);
-      if (found) return found;
+    if (predicate(vm)) return vm;
+    for (const c of (vm.$children || [])) {
+      const r = findComp(c, predicate);
+      if (r) return r;
     }
     return null;
   }
 
   const app = findVueRoot();
   if (!app) {
-    console.error('❌ Vue 앱을 찾을 수 없습니다.');
-    console.error('👉 https://jffis.kotra.or.kr/fairOnline.do?selAction=single_page&SYSTEM_IDX=64&hl=KOR&fairGubunVal=in2&FAIRMENU_IDX=14629#/ 페이지에서 실행해 주세요.');
+    console.error('❌ Vue 앱 없음. 목록 페이지(#/)에서 실행하세요.');
     return;
   }
-  console.log('✅ Vue 앱 발견:', app.$options.name || '(root)');
 
-  // ── Step 2: 각 기업 순회 ────────────────────────────────────
-  const results = [];
+  // ── STEP 1: 전체 기업 목록 수집 ─────────────────────────────
+  console.log('📋 전체 기업 목록 수집 중...');
 
-  for (let i = 0; i < CORP_IDS.length; i++) {
-    const corp = CORP_IDS[i];
-    console.log(`\n[${i+1}/${CORP_IDS.length}] ${corp.name} 로딩 중...`);
+  // 목록 컴포넌트 찾기
+  const listComp = findComp(app, v => v.$data && v.$data.corpList && v.$data.pagesJson);
+  if (!listComp) {
+    console.error('❌ 목록 컴포넌트 없음. #/ 목록 페이지에서 실행하세요.');
+    return;
+  }
 
-    // Vue Router로 해당 기업 상세 페이지 이동
+  const totalRows = listComp.$data.pagesJson.totalRows;
+  const numOfRows = listComp.$data.pagesJson.numOfRows || 16;
+  const totalPages = Math.ceil(totalRows / numOfRows);
+  console.log(`총 ${totalRows}개 기업, ${totalPages}페이지`);
+
+  // 전체 기업 corp_idx 수집
+  const allCorps = [];
+
+  // 현재 페이지(1) 데이터 먼저 추가
+  for (const c of listComp.$data.corpList) {
+    if (c.corp_idx) allCorps.push({ idx: String(c.corp_idx), name: c.in2_corp_nm_kor || c.corp_nm_kor || '' });
+  }
+  console.log(`  페이지 1: ${listComp.$data.corpList.length}개`);
+
+  // 나머지 페이지 순차 로드
+  for (let page = 2; page <= totalPages; page++) {
+    // Vue Router로 페이지 이동
     try {
-      app.$router.push({
-        path: '/detail',
-        query: { CORP_IDX: corp.id, TYPE: 'corp', SYSTEM_IDX: '64' }
-      });
-    } catch(e) {
-      // NavigationDuplicated 등 무시
-    }
+      app.$router.push({ path: '/', query: { selPageNo: page } });
+    } catch(e) {}
 
-    // Vue 렌더링 + API 응답 대기 (corpDetail 데이터가 채워질 때까지 폴링)
-    const comp = await new Promise((resolve) => {
-      let attempts = 0;
-      const timer = setInterval(() => {
-        attempts++;
-        const c = findCorpDetailComp(app);
-        if (c && c.$data.corpDetail && c.$data.corpDetail.corp_idx) {
-          clearInterval(timer);
-          resolve(c);
-        } else if (attempts >= 24) { // 최대 12초
-          clearInterval(timer);
-          resolve(null);
+    // corpList가 새 페이지 데이터로 업데이트될 때까지 대기
+    await new Promise(resolve => {
+      let n = 0;
+      const t = setInterval(() => {
+        n++;
+        const lc = findComp(app, v => v.$data && v.$data.corpList && v.$data.pagesJson);
+        const currentPage = lc && lc.$data.pagesJson && (lc.$data.selPageNo || lc.$data.pagesJson.selPageNo);
+        // 리스트가 업데이트됐는지 확인 (첫 항목 corp_idx 변화 또는 일정 시간 후)
+        if (n > 6) { clearInterval(t); resolve(); }
+        else if (lc && lc.$data.isLoading === false && n > 2) { clearInterval(t); resolve(); }
+      }, 800);
+    });
+
+    const lc = findComp(app, v => v.$data && v.$data.corpList);
+    if (lc && lc.$data.corpList) {
+      for (const c of lc.$data.corpList) {
+        if (c.corp_idx && !allCorps.find(x => x.idx === String(c.corp_idx))) {
+          allCorps.push({ idx: String(c.corp_idx), name: c.in2_corp_nm_kor || '' });
         }
-      }, 500);
+      }
+      console.log(`  페이지 ${page}: ${lc.$data.corpList.length}개 (누적 ${allCorps.length}개)`);
+    }
+  }
+
+  console.log(`\n✅ 전체 기업 수집 완료: ${allCorps.length}개\n`);
+
+  // ── STEP 2: 각 기업 상세 정보 수집 ──────────────────────────
+  function findCorpDetailComp(vm) {
+    return findComp(vm, v => v.$data && v.$data.corpDetail && v.$data.corpDetail.corp_idx);
+  }
+
+  const results = [];
+  const TOTAL = allCorps.length;
+
+  for (let i = 0; i < TOTAL; i++) {
+    const corp = allCorps[i];
+    console.log(`[${i+1}/${TOTAL}] ${corp.name} (${corp.idx})`);
+
+    // 상세 페이지로 이동
+    try {
+      app.$router.push({ path: '/detail', query: { CORP_IDX: corp.idx, TYPE: 'corp', SYSTEM_IDX: '64' } });
+    } catch(e) {}
+
+    // corpDetail 로드 대기
+    const comp = await new Promise(resolve => {
+      let n = 0;
+      const t = setInterval(() => {
+        n++;
+        const c = findCorpDetailComp(app);
+        if (c && c.$data.corpDetail.corp_idx === corp.idx) { clearInterval(t); resolve(c); }
+        else if (n >= 20) { clearInterval(t); resolve(null); }
+      }, 600);
     });
 
     if (!comp) {
-      console.warn(`  ⚠️ ${corp.name}: 데이터 로드 실패 (타임아웃)`);
+      console.warn(`  ⚠️ 타임아웃`);
       results.push({ no: i+1, company: corp.name, error: 'timeout' });
       continue;
     }
 
     const d = comp.$data.corpDetail;
-
-    // 채용공고 배열: corpDetail.in2_job_list 에 있음 (진단으로 확인)
     const jobList = d.in2_job_list || [];
-    const jobs = jobList.length > 0 ? jobList : [{}];
 
-    for (const job of jobs) {
-      const nationality = [job.in2_job_country1, job.in2_job_country2, job.in2_job_country3]
-        .filter(Boolean).join(', ');
-      const language = [job.in2_job_lang1, job.in2_job_lang2, job.in2_job_lang3]
-        .filter(Boolean).join(', ');
-      const nationalityEng = [job.in2_job_country1_eng, job.in2_job_country2_eng, job.in2_job_country3_eng]
-        .filter(Boolean).join(', ');
-      const languageEng = [job.in2_job_lang1_eng, job.in2_job_lang2_eng, job.in2_job_lang3_eng]
-        .filter(Boolean).join(', ');
+    if (jobList.length === 0) {
+      results.push({
+        no: i+1,
+        company: d.in2_corp_nm_kor || corp.name,
+        companyEng: d.in2_corp_nm_eng || '',
+        website: d.in2_corp_homepage || '',
+        industry: d.in2_corp_category || '',
+        companyType: d.in2_corp_scale || '',
+        employees: d.in2_corp_mem_cnt || '',
+        established: d.in2_corp_since || '',
+        positionKor:'', positionEng:'', jobCategory:'', jobCategoryDetail:'', jobCategoryDetailEng:'',
+        employmentTypeKor:'', employmentTypeEng:'', salary:'',
+        location:'', locationDetail:'', locationDetailEng:'',
+        nationality:'', nationalityEng:'', language:'', languageEng:'',
+        education:'', educationEng:'', experience:'', major:'', majorEng:'',
+        jobDetailKor:'', jobDetailEng:'', benefits:'', benefitsEng:'',
+      });
+      console.log(`  ✅ 공고 없음`);
+      continue;
+    }
+
+    for (const job of jobList) {
+      const nationality    = [job.in2_job_country1, job.in2_job_country2, job.in2_job_country3].filter(Boolean).join(', ');
+      const nationalityEng = [job.in2_job_country1_eng, job.in2_job_country2_eng, job.in2_job_country3_eng].filter(Boolean).join(', ');
+      const language       = [job.in2_job_lang1, job.in2_job_lang2, job.in2_job_lang3].filter(Boolean).join(', ');
+      const languageEng    = [job.in2_job_lang1_eng, job.in2_job_lang2_eng, job.in2_job_lang3_eng].filter(Boolean).join(', ');
 
       results.push({
-        no: i + 1,
+        no: i+1,
         company: d.in2_corp_nm_kor || corp.name,
         companyEng: d.in2_corp_nm_eng || '',
         website: d.in2_corp_homepage || '',
@@ -131,10 +176,7 @@
         location: job.in2_job_area || '',
         locationDetail: job.in2_job_area_detail || '',
         locationDetailEng: job.in2_job_area_detail_eng || '',
-        nationality,
-        nationalityEng,
-        language,
-        languageEng,
+        nationality, nationalityEng, language, languageEng,
         education: job.in2_job_academic || '',
         educationEng: job.in2_job_academic_eng || '',
         experience: job.in2_job_career || '',
@@ -147,15 +189,15 @@
       });
     }
 
-    const isIntern = jobs.some(j => (j.in2_job_permanental_eng||'').toLowerCase().includes('intern'));
-    console.log(`  ✅ ${d.in2_corp_nm_kor || corp.name}: 공고 ${jobList.length}개${isIntern ? ' 🎯인턴십' : ''}`);
-    await new Promise(r => setTimeout(r, 800));
+    const isIntern = jobList.some(j => (j.in2_job_permanental_eng||'').toLowerCase().includes('intern'));
+    console.log(`  ✅ 공고 ${jobList.length}개${isIntern ? ' 🎯인턴십' : ''}`);
+    await new Promise(r => setTimeout(r, 400));
   }
 
-  // ── Step 3: CSV 생성 및 다운로드 ────────────────────────────
+  // ── STEP 3: CSV 다운로드 ────────────────────────────────────
   const headers = [
     'No','Company (KOR)','Company (ENG)','Website','Industry','Company Type','Employees','Established',
-    'Job Title (KOR)','Job Title (ENG)','Job Category','Job Detail (KOR)','Job Detail (ENG)',
+    'Job Title (KOR)','Job Title (ENG)','Job Category','Job Detail KOR','Job Detail (ENG)',
     'Employment Type (KOR)','Employment Type (ENG)',
     'Nationality','Nationality (ENG)','Language','Language (ENG)',
     'Education','Experience','Salary (USD)','Major',
@@ -163,7 +205,7 @@
     'Benefits (KOR)','Benefits (ENG)'
   ];
 
-  const rows = results.map(r => [
+  const csvRows = results.map(r => [
     r.no, r.company, r.companyEng, r.website, r.industry, r.companyType, r.employees, r.established,
     r.positionKor, r.positionEng, r.jobCategory, r.jobDetailKor, r.jobDetailEng,
     r.employmentTypeKor, r.employmentTypeEng,
@@ -173,20 +215,21 @@
     r.benefits, r.benefitsEng
   ].map(v => `"${String(v||'').replace(/"/g,'""').replace(/\r?\n/g,' ')}"`).join(','));
 
-  const csv = '﻿' + [headers.join(','), ...rows].join('\n');
+  const csv = '﻿' + [headers.join(','), ...csvRows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'kotra_internship_v5.csv';
+  a.download = 'kotra_all_companies.csv';
   document.body.appendChild(a);
   a.click();
   a.remove();
 
   const internships = results.filter(r => (r.employmentTypeEng||'').toLowerCase().includes('intern'));
-  console.log('\n🎉 완료! kotra_internship_v5.csv 다운로드됨');
-  console.log(`총 ${results.length}행 | 인턴십 공고: ${internships.length}개`);
-  internships.forEach(r => console.log(`  🎯 ${r.company}: ${r.positionKor} (${r.employmentTypeEng})`));
-  console.table(results.map(r => ({No:r.no, Company:r.company, Position:r.positionKor, '고용형태':r.employmentTypeKor, '연봉(USD)':r.salary})));
-
+  console.log(`\n🎉 완료! kotra_all_companies.csv 다운로드됨`);
+  console.log(`총 ${TOTAL}개 기업 / ${results.length}개 공고행 / 인턴십 ${internships.length}개`);
+  if (internships.length) {
+    console.log('\n🎯 인턴십 공고:');
+    internships.forEach(r => console.log(`  - ${r.company}: ${r.positionKor} (${r.employmentTypeEng}) | 연봉 ${r.salary} USD | 국적 ${r.nationality}`));
+  }
   return results;
 })();
